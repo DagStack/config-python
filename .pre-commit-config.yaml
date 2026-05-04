@@ -1,0 +1,36 @@
+# Pre-commit hooks для dagstack-config.
+# Устанавливается командой `uv run pre-commit install` — без этого hooks не срабатывают.
+# CI прогоняет ровно те же hooks (см. .gitea/workflows/ci.yml → lint job).
+
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    # Pin к version установленной через uv group dev, иначе format/lint правила
+    # расходятся между `make lint` (uv run ruff) и pre-commit hook.
+    rev: v0.15.11
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.13.0
+    hooks:
+      - id: mypy
+        additional_dependencies:
+          - pydantic>=2.0,<3.0
+          - types-pyyaml>=6.0
+          - pytest>=8.0
+        args: [--strict, --config-file=pyproject.toml]
+        pass_filenames: false
+        entry: mypy src tests
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-yaml
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+        exclude: \.md$
+      - id: check-added-large-files
+        args: [--maxkb=500]
+      - id: check-merge-conflict

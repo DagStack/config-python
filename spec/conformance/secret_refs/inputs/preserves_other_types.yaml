@@ -1,0 +1,5 @@
+llm:
+  api_key: ${secret:env:API_KEY}
+  port: 8080
+  enabled: true
+  weight: 0.75

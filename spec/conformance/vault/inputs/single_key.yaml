@@ -1,0 +1,2 @@
+llm:
+  api_key: ${secret:vault:secret/dagstack/conformance/openai}

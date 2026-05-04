@@ -1,0 +1,2 @@
+api:
+  key: ${secret:env:DEFINITELY_NOT_SET_FOR_TEST_XYZ_2026}

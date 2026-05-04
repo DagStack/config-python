@@ -1,0 +1,2 @@
+database:
+  password: ${REQUIRED_ENV_VAR_NOT_SET}

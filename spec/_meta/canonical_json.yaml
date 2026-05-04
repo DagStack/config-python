@@ -1,0 +1,76 @@
+# Canonical JSON serialisation rules (ADR-0001 §9.1.1).
+#
+# Bindings implement a serialiser that produces bit-identical output for the
+# same input. This file is the formal source of truth; on a conflict with
+# the prose in the ADR this file wins.
+
+version: "1.0"
+
+# Base: RFC 8785 JSON Canonicalization Scheme — subset, described below.
+base_specification: "RFC 8785"
+
+rules:
+  # Object keys
+  keys:
+    sort_order: "lexicographic UTF-8 code-point order"
+    # Matches Python `sorted()`, JavaScript `.sort()` without a comparator,
+    # Go `sort.Strings()`. All of these sort by Unicode code points.
+    encoding: "UTF-8"
+
+  # String values
+  strings:
+    encoding: "UTF-8"
+    escape_form: "minimal"
+    # `\"`, `\\`, `\b`, `\f`, `\n`, `\r`, `\t`, `\uXXXX` for control chars < 0x20.
+    # Unicode characters above 0x1F are emitted verbatim (NOT escaped as \uXXXX).
+    ensure_ascii: false
+
+  # Numbers
+  integers:
+    representation: "decimal, no leading zeros, no decimal point"
+    # `1` not `1.0`, `-42` not `-42.00`.
+    limits:
+      min: -9007199254740992   # -2^53 (JavaScript-safe)
+      max:  9007199254740992   # 2^53
+    # Integers outside the JS-safe range are still valid JSON, but
+    # backends may round them. The binding SHOULD warn when serialising
+    # ints > 2^53.
+
+  floats:
+    representation: "shortest round-trip"
+    # Python 3.1+ float.__repr__ produces shortest round-trip (matches ECMAScript).
+    # Go strconv.FormatFloat with format='g', prec=-1. TS — `JSON.stringify` (native).
+    whole_number_emission: integer_form
+    # Whole-number floats (100.0, -0.0) are serialised as the integer
+    # literals `100` / `0`, not `100.0`. Matches RFC 8785 §3.2.2.3 via
+    # ECMAScript ToString(Number) — which always produces `"100"` for the
+    # number 100. Bindings whose default emitter outputs `100.0` (Python
+    # json.dumps, Ruby JSON.generate) MUST post-process the output to be
+    # bit-identical. Go strconv.FormatFloat with 'g' prec=-1 already
+    # outputs `100` — conformant.
+    negative_zero_normalization: true
+    # `-0.0` is serialised as `0` (integer form, not `-0`, not `0.0`).
+    nan_infinity: reject
+    # `NaN`, `+Infinity`, `-Infinity` — ValueError / serialise failure.
+
+  # Container formatting
+  whitespace:
+    between_items: none
+    # `{"a":1,"b":2}` not `{"a": 1, "b": 2}`.
+    after_colon: none
+    after_comma: none
+    indent: none
+
+  # Document-level
+  document:
+    trailing_newline: false
+    # `{"a":1}` not `{"a":1}\n`.
+    bom: forbidden
+    # No UTF-8 BOM is written.
+    line_ending: "LF"
+    # If line breaks appear inside strings, escape as `\n`.
+
+validation:
+  non_string_dict_keys: reject
+  # The JSON spec disallows non-string keys. A Python dict containing any
+  # non-string key → serialise failure.

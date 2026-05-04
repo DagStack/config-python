@@ -1,0 +1,4 @@
+phase1: ${LEGACY_VAR}
+phase2: ${secret:env:NEW_VAR}
+both_default: ${secret:env:UNSET_VAR:-secondary}
+plain_phase1_default: ${LEGACY_DEFAULTED:-legacy-fb}

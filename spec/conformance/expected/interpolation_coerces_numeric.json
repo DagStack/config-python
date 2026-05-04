@@ -1,0 +1,1 @@
+{"embeddings":{"batch_size":128,"dimension":1536,"timeout_ms":30000},"features":{"caching_enabled":false}}

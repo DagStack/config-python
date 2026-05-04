@@ -1,0 +1,4 @@
+# ?version=1 reads the historical version (seed.sh writes v1, then v2;
+# default reads v2, ?version=1 reads v1).
+old: ${secret:vault:secret/dagstack/conformance/versioned?version=1}
+latest: ${secret:vault:secret/dagstack/conformance/versioned}

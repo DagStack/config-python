@@ -1,0 +1,107 @@
+# Mirror canonical → github.com/dagstack/<repo> as snapshot + tags.
+#
+# Triggered on push to main and on tag push. Создаёт single orphan-commit
+# с current main snapshot, force-push'ает на GitHub mirror через SSH,
+# затем создаёт local tags для всех semver-тегов из canonical и push'ит их.
+#
+# Pre-condition: GitHub repo (приватный или public) уже создан вручную
+# в github.com/dagstack/<repo>.
+#
+# Secrets:
+#   SUBMODULE_PAT  — Gitea token для clone (со всеми submodules).
+#   GH_MIRROR_TOKEN — SSH ed25519 private key для push на git@github.com:dagstack/*.
+
+name: Mirror to GitHub
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  mirror:
+    runs-on: dagstack-runner
+    steps:
+      - name: Clone source from Gitea (with tags)
+        env:
+          PAT: ${{ secrets.SUBMODULE_PAT }}
+        run: |
+          set -e
+          REPO="${GITHUB_REPOSITORY##*/}"
+          echo "REPO=$REPO" >> "$GITHUB_ENV"
+          # Shallow clone main + fetch all semver tags для re-use на mirror.
+          git clone --depth 1 --branch main --recurse-submodules \
+            "http://x-access-token:${PAT}@192.168.88.23:3222/dagstack/${REPO}.git" \
+            snapshot
+          # Fetch all tags (shallow clone не приносит их).
+          git -C snapshot fetch --tags --depth 1 origin || true
+          git -C snapshot tag -l 'v*' > /tmp/tags.txt
+          echo "Tags found:"
+          cat /tmp/tags.txt
+
+      - name: Setup SSH key for github.com
+        env:
+          SSH_KEY: ${{ secrets.GH_MIRROR_TOKEN }}
+        run: |
+          set -e
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_github
+          chmod 600 ~/.ssh/id_github
+          ssh-keyscan -t rsa,ed25519 github.com >> ~/.ssh/known_hosts 2>/dev/null
+          chmod 644 ~/.ssh/known_hosts
+
+      - name: Re-initialize as snapshot (drop history + internal artefacts)
+        run: |
+          set -e
+          cd snapshot
+          # Drop git history.
+          rm -rf .git
+          # Drop nested submodule .git directories / files.
+          find . -name '.git' -type d -prune -exec rm -rf {} + || true
+          find . -name '.git' -type f -delete || true
+          # Drop submodule metadata + Gitea CI artefacts (internal).
+          rm -f .gitmodules
+          rm -rf .gitea/
+          # Replace Nexus internal registry URLs in lockfiles with public equivalents.
+          find . -name 'package-lock.json' -exec sed -i \
+            -e 's|https://nexus\.goldix\.org/repository/npm-proxy/|https://registry.npmjs.org/|g' \
+            -e 's|https://nexus\.goldix\.org/repository/npm-all/|https://registry.npmjs.org/|g' \
+            {} + || true
+          find . -name 'uv.lock' -exec sed -i \
+            -e 's|https://nexus\.goldix\.org/repository/pypi-proxy/|https://pypi.org/|g' \
+            -e 's|https://nexus\.goldix\.org/repository/pypi-all/|https://pypi.org/|g' \
+            -e 's|https://nexus\.goldix\.org/repository/gx-pypi/|https://pypi.org/|g' \
+            {} + || true
+
+          git init -b main
+          git config user.email "ci@dagstack.dev"
+          git config user.name "dagstack mirror"
+          git add -A
+          git commit -m "Snapshot of dagstack/${REPO} from canonical source ${GITHUB_SHA}. Read-only mirror, see https://github.com/dagstack/${REPO}"
+
+          # Re-create all semver tags on the orphan commit.
+          # All tags point to the same orphan commit — content is current main.
+          # Go module proxy / pkg.go.dev / pip / npm don't care about commit
+          # graph; они просто fetch'ат tarball/zip для tag.
+          while IFS= read -r tag; do
+            [ -z "$tag" ] && continue
+            git tag "$tag"
+          done < /tmp/tags.txt
+
+      - name: Force-push snapshot + tags to GitHub via SSH
+        run: |
+          set -e
+          cd snapshot
+          GIT_SSH_COMMAND="ssh -i ~/.ssh/id_github -o IdentitiesOnly=yes -o StrictHostKeyChecking=no"
+          export GIT_SSH_COMMAND
+          # Force-push main first.
+          git push --force \
+            "git@github.com:dagstack/${REPO}.git" \
+            main:main
+          # Force-push all tags (overwrite any stale tag pointing to old orphan).
+          if [ -s /tmp/tags.txt ]; then
+            git push --force --tags \
+              "git@github.com:dagstack/${REPO}.git"
+          fi
+          echo "Snapshot + tags pushed to https://github.com/dagstack/${REPO}"

@@ -1,0 +1,29 @@
+# Source of truth for conformance fixture tags. Each fixture in
+# `conformance/manifest.yaml` carries one or more tags from this list.
+# Bindings filter by tag to choose which fixtures to run.
+#
+# `requires_external_service: true` flags fixtures that need a live
+# service (Vault dev mode, an etcd cluster, a real cloud secret
+# manager). CI gates these on a per-binding env var.
+
+version: "1.0"
+tags:
+  # ── ADR-0001 (Phase 1) ───────────────────────────────────────────────
+  - name: phase1
+    description: Phase 1 fixtures — file sources, env interpolation, deep merge, canonical JSON. Always run.
+    requires_external_service: false
+
+  # ── ADR-0002 (Phase 2 — secrets) ─────────────────────────────────────
+  - name: phase2_secrets
+    description: |
+      Phase 2 secrets fixtures using the `env` scheme only — pure
+      ${secret:env:...} grammar, lazy/eager resolution semantics,
+      snapshot masking, refresh_secrets. Run unconditionally in CI.
+    requires_external_service: false
+  - name: phase2_secrets_vault
+    description: |
+      Phase 2 secrets fixtures backed by HashiCorp Vault KV v2.
+      Skipped by default; run when DAGSTACK_CONFORMANCE_VAULT_ADDR is
+      set. Spec ships a docker-compose for `vault server -dev` plus a
+      seed script under `conformance/vault/`.
+    requires_external_service: true

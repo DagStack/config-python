@@ -1,0 +1,13 @@
+# Local TypeScript/Node artefacts created when running the spec
+# wrapper against a sibling `dagstack/config-typescript` checkout
+# (see README.md "Local invocation"). These are ephemeral build
+# outputs, never committed.
+node_modules/
+package.json
+package-lock.json
+
+# `go work` files created when developing the Go wrapper against a
+# sibling checkout. The wrapper's go.mod uses a `replace` directive
+# instead, so a workspace file is purely local convenience.
+canonical_go/go.work
+canonical_go/go.work.sum

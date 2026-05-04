@@ -1,0 +1,183 @@
+# Type coercion rules for Config.get* methods.
+# Source of truth for ADR-0001 §4.3 (primitive getters) and §4.4 (typed
+# section access, v2.1+). On a conflict with the prose in the ADR this
+# file wins.
+#
+# Bindings implement coercion idiomatically for their language, but
+# accept/reject decisions for any (target_type, actual_value) pair must
+# match across Python / TS / Go / …
+#
+# Conformance fixtures in conformance/coercion/* lock in bit-stable output.
+
+version: "1.0"
+
+# ── has(path) ──────────────────────────────────────────────────────
+
+has:
+  semantics: existence_check
+  # has(path) returns true iff the path is present in the merged tree,
+  # regardless of its value. An explicit null (None, nil, YAML ~) still
+  # counts as "present" (analogous to dict.__contains__).
+  null_counts_as_present: true
+  # This is what distinguishes has(path) from `getString(path, '').truthy()`.
+
+# ── getString ──────────────────────────────────────────────────────
+
+get_string:
+  strict_mode: true
+  # getString does NOT coerce numeric or boolean values to a string.
+  # `EMBEDDINGS_DIMENSION: 768` + `getString("embeddings.dimension")` →
+  # type_mismatch, not "768". Motivation: a frequent mistake is to pass
+  # a number as a string into a URL or SQL parameter without an explicit
+  # type conversion.
+  accepts:
+    - string
+  rejects:
+    - int
+    - float
+    - bool
+    - null
+    - list
+    - map
+  env_interpolated_values:
+    # Values that came from ${VAR} are always strings at the
+    # source.load() level; getString accepts them.
+    treat_as: string
+
+# ── getInt ─────────────────────────────────────────────────────────
+
+get_int:
+  accepts:
+    native_int: true
+    # int / int32 / int64 / uint / uint32 / uint64 — all accepted.
+
+    string:
+      regex: "^-?\\d+$"
+      # Env-interpolated strings matching an integer literal.
+      # "42" → 42; "-5" → -5; "0" → 0.
+      # Rejects: "42.0", "0x10", "4_2", "1e5", whitespace.
+
+    whole_number_float:
+      enabled: true
+      # JSON sources always decode numbers as float64. A whole-number
+      # float (no fractional part, within the i-JSON safe range
+      # |value| ≤ 2^53-1) is accepted as int. This gives uniform
+      # behaviour for whole numbers across YAML sources (int) and JSON
+      # sources (float64).
+      safe_range_limit: 9007199254740991   # 2^53 - 1, i-JSON max safe.
+      fractional_rejects: true
+      # `3.14` → type_mismatch; `3.0` → 3; `9007199254740992.0` → type_mismatch
+      # (out of safe range — precision lost).
+  rejects:
+    - bool
+    - null
+    - list
+    - map
+    - float_with_fraction
+    - int_outside_safe_range
+
+# ── getNumber ──────────────────────────────────────────────────────
+
+get_number:
+  accepts:
+    native_int: true
+    native_float: true
+    string:
+      regex: "^-?\\d+(\\.\\d+)?([eE][-+]?\\d+)?$"
+      # ECMAScript float literal — `3.14`, `-0.5`, `1e5`, `1.5e-3`.
+  rejects:
+    - bool
+    - null
+    - nan_or_infinity
+    - list
+    - map
+
+# ── getBool ────────────────────────────────────────────────────────
+
+get_bool:
+  accepts:
+    native_bool: true
+    string:
+      values: [true, false, yes, no, "1", "0"]
+      case_sensitive: false
+      # "True", "YES", "NO" — all accepted.
+  rejects:
+    - int    # Python truthy is NOT accepted
+    - float
+    - null
+    - list
+    - map
+
+# ── getList ────────────────────────────────────────────────────────
+
+get_list:
+  accepts:
+    - sequence   # native array/list
+  rejects:
+    - string     # "a,b,c" is NOT split on commas. The consumer does that.
+    - int
+    - float
+    - bool
+    - null
+    - map
+
+# ── JSON decode-time normalisation (source-level) ──────────────────
+
+json_source_normalisation:
+  whole_number_float_to_int: true
+  # JsonFileSource (or equivalent) walks the parsed tree and converts a
+  # float64 with no fractional part into int64 if the value falls inside
+  # the i-JSON safe range. This is done at source.load() level rather
+  # than inside the getter — so that Get() (untyped) returns int rather
+  # than float, identically across YAML and JSON sources.
+  safe_range_limit: 9007199254740991
+  # i-JSON max safe (2^53 - 1). Values outside the range (precision lost
+  # on round-trip through JS / Python float) stay as float64 — `getInt`
+  # against them returns type_mismatch; the consumer either uses
+  # `getNumber` or accepts the precision loss explicitly. If a binding
+  # implements normalisation up to 2^63-1 (Go native int64 range), that
+  # is **non-conforming** when interoperating with JS consumers.
+  # Fractional floats (3.14) always remain float64.
+
+# ── getSection (typed access) — ADR-0001 §4.4 ─────────────────────
+
+get_section:
+  env_string_coercion: true
+  # Values that came from ${VAR} interpolation are always strings at
+  # the source.load() level. Before passing them to a native schema
+  # validator (pydantic / zod / yaml.v3 decoder) the binding MUST apply
+  # the same coercion rules as for the primitive getters above.
+  #
+  # Rule mapping (accept):
+  #   schema int field      ← string `^-?\d+$`       → int (as get_int)
+  #   schema number field   ← string `^-?\d+(\.\d+)?([eE][-+]?\d+)?$` → float
+  #   schema bool field     ← string true|false|yes|no|1|0 (ci) → bool
+  #   schema string field   ← string passes through, no coercion
+  #
+  # The binding pre-applies coercion and only then invokes the validator —
+  # so that `port: "${DB_PORT:-5432}"` (after env interpolation = "5432")
+  # validates against an `int` field in the schema.
+  rejects:
+    # Reject → reason code mapping is normative.
+    - cause: fractional_float_into_int_field
+      reason: validation_failed
+    - cause: non_matching_string_into_numeric_field
+      reason: validation_failed
+    - cause: outside_safe_range_into_int_field
+      reason: validation_failed
+    - cause: native_int_float_bool_into_string_field
+      reason: type_mismatch
+      # Mirror of get_string.strict_mode — native numeric/bool values
+      # are NOT coerced into a string. Protects against silent
+      # `dimension: 768` → `"768"`.
+
+# ── get() (no-type) parity invariant ──────────────────────────────
+
+get_untyped_parity:
+  description: |
+    config.get(path) (untyped) returns the post-normalisation value.
+    For JSON sources whole-number floats are normalised to int BEFORE
+    they reach the getter. This guarantees
+    `type(config.get("port")) == int` for both YAML and JSON sources
+    (parity invariant across wire formats).
+  invariant: "type(get(p)) identical for YAML vs JSON sources containing the same logical value"

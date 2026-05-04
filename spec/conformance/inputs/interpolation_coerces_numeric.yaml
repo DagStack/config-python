@@ -1,0 +1,6 @@
+embeddings:
+  dimension: ${EMBEDDINGS_DIMENSION:-768}
+  timeout_ms: ${EMBEDDINGS_TIMEOUT:-30000}
+  batch_size: ${EMBEDDINGS_BATCH:-64}
+features:
+  caching_enabled: ${CACHE_ENABLED:-true}

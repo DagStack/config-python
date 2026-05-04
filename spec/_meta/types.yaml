@@ -1,0 +1,200 @@
+# Public type names — canonical spec form + per-binding idiomatic rendering.
+#
+# Source of truth for the stutter-avoidance rule (ADR-0001 §4.5) and for
+# source naming (ADR-0001 §8.2). Emitters and the conformance runner use
+# this file as a cross-binding registry; per-binding READMEs reference
+# the column for their platform.
+#
+# A new binding (Rust, Java, etc.) adds a row through an ADR amendment
+# in config-spec, not in its own repository.
+#
+# Semantic identity: every binding row implements ONE type with
+# identical semantics. Stutter-free vs descriptive form is a syntax
+# concern, not a wire-contract concern.
+
+version: "1.0"
+
+# Column "spec_form" — canonical name in the ADR text.
+# Columns "python" / "typescript" / "go" — names in the binding's public API.
+# Column "kind" — classification for tooling ("error", "source", "tree", "contract").
+
+types:
+  - spec_form: ConfigError
+    kind: error
+    python: ConfigError
+    typescript: ConfigError
+    go: Error                    # stutter avoidance (§4.5)
+    note: |
+      The binding's primary error type; the structural fields path /
+      reason / details / source_id? are fixed in
+      _meta/error_reasons.yaml.
+
+  - spec_form: ConfigErrorReason
+    kind: error
+    python: ConfigErrorReason
+    typescript: ConfigErrorReason
+    go: ErrorReason              # stutter avoidance (§4.5)
+    note: |
+      Enum with fixed wire values (see _meta/error_reasons.yaml).
+
+  - spec_form: ConfigSource
+    kind: contract
+    python: ConfigSource
+    typescript: ConfigSource
+    go: Source                   # stutter avoidance (§4.5)
+    note: |
+      Protocol / Interface for source adapters; fields id / load() /
+      interpolate.
+
+  - spec_form: ConfigTree
+    kind: tree
+    python: ConfigTree
+    typescript: ConfigTree
+    go: Tree                     # stutter avoidance (§4.5)
+    note: |
+      Type alias for the nested mapping of values; the concrete
+      representation is language-specific (dict[str, Any] / object /
+      map[string]any).
+
+  - spec_form: InMemorySource
+    kind: source
+    python: InMemorySource
+    typescript: InMemorySource
+    go: DictSource               # per-binding idiom (§8.2)
+    note: |
+      In Go a container-typed name is chosen by analogy with
+      YamlFileSource / JsonFileSource — "<format/type>Source". The
+      constructor is NewDictSource.
+
+  - spec_form: YamlFileSource
+    kind: source
+    python: YamlFileSource
+    typescript: YamlFileSource
+    go: YamlFileSource
+    note: |
+      Reads a YAML file with env interpolation.
+
+  - spec_form: JsonFileSource
+    kind: source
+    python: JsonFileSource
+    typescript: JsonFileSource
+    go: JsonFileSource
+    note: |
+      Reads a JSON file; whole-number floats are normalised to int at
+      load time.
+
+  - spec_form: Config
+    kind: contract
+    python: Config
+    typescript: Config
+    go: Config
+    note: |
+      The binding's main class; load / load_from / getters /
+      get_section.
+
+  - spec_form: Subscription
+    kind: contract
+    python: Subscription
+    typescript: Subscription
+    go: Subscription
+    note: |
+      Handle for change subscriptions (§7.2). In Phase 1 bindings return
+      an inactive instance (the callback never fires).
+
+  # ── ADR-0002 (Phase 2 — secret references and adapters) ────────────────
+  - spec_form: SecretSource
+    kind: contract
+    python: SecretSource
+    typescript: SecretSource
+    go: SecretSource             # stutter NOT applied in Phase 2 — see note
+    note: |
+      Protocol / Interface for secret backends; fields scheme / id /
+      resolve(path, ctx). Distinct from ConfigSource: secrets resolve
+      lazily by key, not eagerly as a tree. Phase 2 normative
+      implementations: EnvSecretSource (mandatory), VaultSource
+      (optional opt-in extra). See ADR-0002 §2.
+
+      Stutter note: Phase 2 Go binding does not extract secrets to a
+      sub-package, so `config.SecretSource` does not stutter (the
+      package and the prefix differ). If a future Go binding extracts
+      secrets to `config/secret`, this row updates to `Source` per
+      §4.5 stutter-avoidance rule and §8.2 idiom guidance.
+
+  - spec_form: AsyncSecretSource
+    kind: contract
+    python: AsyncSecretSource
+    typescript: SecretSource         # not emitted as a separate type — Promise-based already
+    go: SecretSource                  # not emitted as a separate type — context.Context already
+    note: |
+      Async-flavoured parallel protocol used by Python only, with
+      `async def resolve_async` for non-blocking event loops.
+      TypeScript and Go bindings do NOT emit a separate type — their
+      SecretSource interface already encodes async semantics through
+      Promise (TS) and `context.Context` (Go). The columns above point
+      back at SecretSource for parity. See ADR-0002 §2.
+
+  - spec_form: SecretRef
+    kind: tree
+    python: SecretRef
+    typescript: SecretRef
+    go: SecretRef
+    note: |
+      Opaque placeholder for an unresolved ${secret:...} reference. The
+      file source emits it at load time; the loader resolves it
+      transparently at first get*. Lives in the merged tree mixed with
+      regular scalars. See ADR-0002 §3.
+
+  - spec_form: SecretValue
+    kind: tree
+    python: SecretValue
+    typescript: SecretValue
+    go: SecretValue
+    note: |
+      The result of SecretSource.resolve(path, ctx) — the resolved
+      string value plus optional version / expires_at metadata. Fixed
+      shape across bindings; carries source_id for diagnostics. See
+      ADR-0002 §2.
+
+  - spec_form: ResolveContext
+    kind: contract
+    python: ResolveContext
+    typescript: ResolveContext
+    go: ResolveContext
+    note: |
+      Per-call context object passed to SecretSource.resolve — carries
+      cancellation handle (asyncio.Task / AbortSignal / context.Context),
+      deadline, attempt counter. Diagnostic-only: the loader does not
+      implement automatic retries.
+
+  - spec_form: SecretChangeEvent
+    kind: contract
+    python: SecretChangeEvent
+    typescript: SecretChangeEvent
+    go: SecretChangeEvent
+    note: |
+      Phase 3 (preview) payload for push-based secret rotation events.
+      Not emitted by Phase 2 bindings — reserved here so that the
+      type name is fixed across bindings before Phase 3 lands.
+
+  - spec_form: EnvSecretSource
+    kind: source
+    python: EnvSecretSource
+    typescript: EnvSecretSource
+    go: EnvSecretSource
+    note: |
+      The mandatory in-process SecretSource for the `env` scheme.
+      Implements ${secret:env:VAR} as a degenerate case of secret
+      resolution — semantically identical to ${VAR} from ADR-0001 §2.
+      Auto-registered by every loader if the consumer does not pass
+      one explicitly.
+
+  - spec_form: VaultSource
+    kind: source
+    python: VaultSource
+    typescript: VaultSource
+    go: VaultSource
+    note: |
+      Pilot SecretSource for HashiCorp Vault KV v2. Opt-in extra:
+      `pip install dagstack-config[vault]` (hvac), `npm install
+      node-vault` peerDependency, sub-module `go.dagstack.dev/config/vault`.
+      Token / AppRole / Kubernetes ServiceAccount auth. See ADR-0002 §6.

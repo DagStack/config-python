@@ -1,0 +1,1 @@
+{"rate":{"burst":200,"ratio":0.75},"server":{"max_connections":100,"port":8080,"timeout_seconds":30},"zeros":{"negative":0,"plain":0}}
