@@ -1,0 +1,7 @@
+database:
+  host: ${DB_HOST:-localhost}
+  password: ${DB_PASSWORD}
+  name: ${DB_NAME:-appdb}
+cache:
+  ttl_min: ${CACHE_TTL_MIN:-15}
+  max_size_mb: ${CACHE_MAX_SIZE_MB:-64}

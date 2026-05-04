@@ -1,0 +1,64 @@
+# Source of truth for the ConfigError.reason enum (per ADR-0001 §4.5).
+#
+# Bindings MUST use these exact string values — they appear in diagnostic
+# channels, log records and error messages. Changing a value is a breaking
+# change to the wire format and requires a major bump of
+# logger-spec / config-spec.
+#
+# Adding a new reason: append at the end; bindings regenerate `_generated/`
+# and tests must cover the new error.
+
+version: "1.1"
+reasons:
+  - name: MISSING
+    value: missing
+    description: A required key is absent and no default was provided.
+  - name: TYPE_MISMATCH
+    value: type_mismatch
+    description: The value cannot be coerced into the requested type (for example, a float passed to get_int without string matching).
+  - name: ENV_UNRESOLVED
+    value: env_unresolved
+    description: A ${VAR} reference without a default and the env variable is not set.
+  - name: VALIDATION_FAILED
+    value: validation_failed
+    description: |
+      Validation failed: either schema validation in get_section
+      (Pydantic / zod / proto), or loader-bootstrap configuration
+      (for example, duplicate SecretSource scheme registration per
+      ADR-0002 §4).
+  - name: PARSE_ERROR
+    value: parse_error
+    description: YAML / JSON / other source parsing failed.
+  - name: SOURCE_UNAVAILABLE
+    value: source_unavailable
+    description: The source is unavailable (file missing, etcd unreachable, network error).
+  - name: RELOAD_REJECTED
+    value: reload_rejected
+    description: The reconfigure candidate was rejected by the validation phase (§8.4 atomic swap).
+  # ── Phase 2 (ADR-0002) — secret resolution errors ────────────────────────
+  - name: SECRET_UNRESOLVED
+    value: secret_unresolved
+    description: |
+      A ${secret:<scheme>:<path>} reference cannot be resolved: no
+      SecretSource registered for the scheme, the key is missing in
+      the backend, the requested ?version=N is destroyed/deleted, or
+      a #field projection asked for a sub-key absent in the resolved
+      secret. Operator action: check the YAML reference and the
+      backend key spelling.
+  - name: SECRET_BACKEND_UNAVAILABLE
+    value: secret_backend_unavailable
+    description: |
+      The secret backend is unreachable: network error, DNS failure,
+      Vault sealed, or auth-method credentials rejected at connect
+      time. Operator action: check connectivity, credentials and
+      backend health.
+  - name: SECRET_PERMISSION_DENIED
+    value: secret_permission_denied
+    description: |
+      The backend rejected the read with an authorisation error
+      (Vault 403, AWS-SM AccessDeniedException, K8s RBAC denial).
+      Distinct from SECRET_UNRESOLVED so operators can dispatch on
+      reason: this one points at the backend's policy, not the
+      reference spelling. Operator action: check the backend policy
+      (Vault policy, AWS IAM, K8s RBAC role) for read permission on
+      this key.

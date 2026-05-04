@@ -1,0 +1,29 @@
+# HashiCorp Vault dev-mode for binding integration tests.
+#
+# Usage:
+#     docker compose -f conformance/vault/docker-compose.yml up -d
+#     export DAGSTACK_CONFORMANCE_VAULT_ADDR=http://localhost:8200
+#     export DAGSTACK_CONFORMANCE_VAULT_TOKEN=conformance-root-token
+#     ./conformance/vault/seed.sh
+#     # then run the per-binding integration suite that picks up the
+#     # `phase2_secrets_vault` tag (see _meta/conformance_tags.yaml).
+#
+# Dev mode disables persistent storage and enables KV v2 at `secret/`
+# by default, which matches the conformance fixtures verbatim.
+
+services:
+  vault:
+    image: hashicorp/vault:1.18
+    ports:
+      - "8200:8200"
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: conformance-root-token
+      VAULT_DEV_LISTEN_ADDRESS: 0.0.0.0:8200
+    cap_add:
+      - IPC_LOCK
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8200/v1/sys/health"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+      start_period: 5s

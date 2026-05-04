@@ -1,0 +1,203 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "dagstack-config"
+description = "Python binding for dagstack/config-spec — YAML configuration with env interpolation, Pydantic-based typed sections, runtime reconfigure"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [
+    { name = "Evgenii Demchenko", email = "demchenkoev@gmail.com" },
+]
+keywords = [
+    "config",
+    "configuration",
+    "yaml",
+    "pydantic",
+    "dagstack",
+    "env-interpolation",
+]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: System :: Systems Administration",
+    "Typing :: Typed",
+]
+dynamic = ["version"]
+dependencies = [
+    "pyyaml>=6.0",
+    "pydantic>=2.0,<3.0",
+]
+
+[project.optional-dependencies]
+# HashiCorp Vault adapter (ADR-0002 §6 + per-binding ADR-0001).
+# Pulls hvac as the canonical Python client. Optional so that
+# consumers using only file sources do not pay the dependency cost.
+vault = ["hvac>=2.0,<3.0"]
+
+[project.urls]
+Homepage = "https://github.com/dagstack/config-python"
+Repository = "https://github.com/dagstack/config-python"
+Issues = "https://github.com/dagstack/config-python/issues"
+Specification = "https://github.com/dagstack/config-spec"
+
+[dependency-groups]
+dev = [
+    "ruff>=0.6",
+    "mypy>=1.10",
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "pytest-cov>=5.0",
+    "pre-commit>=3.7",
+    "types-pyyaml>=6.0",
+]
+
+[tool.hatch.version]
+path = "src/dagstack/config/_version.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/dagstack"]
+
+# ─── pytest ──────────────────────────────────────────────────────────────────
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+pythonpath = ["src"]
+asyncio_mode = "strict"
+addopts = [
+    "--strict-markers",
+    "--strict-config",
+    "-ra",
+    "--cov=dagstack.config",
+    "--cov-report=term-missing",
+]
+markers = [
+    "slow: тесты дольше 1 секунды",
+    "conformance: тесты против spec/conformance fixtures",
+]
+
+[tool.coverage.run]
+source = ["src/dagstack/config"]
+branch = true
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+    "@overload",
+]
+
+# ─── ruff ────────────────────────────────────────────────────────────────────
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",
+    "W",
+    "F",
+    "I",
+    "N",
+    "UP",
+    "B",
+    "A",
+    "C4",
+    "PT",
+    "SIM",
+    "RUF",
+    "TID",
+    "TCH",
+    "PYI",
+]
+ignore = [
+    "E501",
+    "RUF001",
+    "RUF002",
+    "RUF003",
+    "N818",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = [
+    "S101",
+    "PLR2004",
+]
+# docs_examples/ копирует snippets дословно — поэтому допустимы:
+# - TC003: импорты stdlib в основном scope (а не TYPE_CHECKING), т.к.
+#   snippet должен работать так же, как в docs;
+# - PLC0415: локальные импорты внутри теста — это часть snippet'а
+#   (в docs пользователь видит `from dagstack.config import Config`
+#   внутри примера);
+# - E402: импорт после кода не применяется, но документация порой
+#   группирует импорты нестандартно;
+# - F401/F811: shadowing типов из snippet'ов (user define-ит
+#   DatabaseConfig в нескольких местах в docs).
+"tests/docs_examples/**/*.py" = [
+    "S101",
+    "PLR2004",
+    "TC002",    # third-party import stays in main scope (pytest fixtures)
+    "TC003",    # stdlib import stays in main scope — readability vs TYPE_CHECKING
+    "PLC0415",  # локальные импорты внутри snippet-а
+    "F401",    # unused imports (символы приходят из snippet'ов)
+    "F811",    # shadowing (DatabaseConfig в нескольких тестах)
+    "E402",    # late imports допустимы (snippet sometimes interleaves)
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["dagstack"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+# ─── mypy ────────────────────────────────────────────────────────────────────
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+# Namespace package (PEP 420) — `dagstack.config` не имеет dagstack/__init__.py.
+# Без этих настроек mypy находит _version.py по двум путям ("config._version"
+# и "dagstack.config._version") — нужно направить через mypy_path=src.
+mypy_path = "src"
+namespace_packages = true
+explicit_package_bases = true
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+disallow_untyped_defs = true
+disallow_any_explicit = false
+no_implicit_reexport = true
+show_error_codes = true
+show_error_context = true
+pretty = true
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
+warn_return_any = false
+
+[[tool.mypy.overrides]]
+# hvac (HashiCorp Vault client) has no type stubs as of v2.4.x.
+# Tracked by hvac upstream (the project plans py.typed marker but has
+# not yet shipped). Override per-package; refresh once the upstream
+# stubs land.
+module = "hvac.*"
+ignore_missing_imports = true

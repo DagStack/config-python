@@ -1,0 +1,5 @@
+safe_max_positive: 9007199254740991
+safe_max_negative: -9007199254740991
+safe_zero: 0
+safe_small_positive: 42
+safe_small_negative: -42
