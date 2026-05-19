@@ -1,0 +1,5 @@
+explicit_null: null
+tilde_null: ~
+empty_value:
+nested:
+  inner_null: null

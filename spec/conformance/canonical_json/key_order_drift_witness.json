@@ -1,0 +1,58 @@
+{
+  "_doc": "Conformance fixture for canonical JSON key ordering — RFC 8785 §3.2.3 mandates UTF-16 code-unit order. Cross-binding parity (S3): dagstack-logger (Python), @dagstack/logger (TypeScript), go.dagstack.dev/logger (Go) MUST emit identical wire bytes for each case. JavaScript Array.prototype.sort is already conformant per ECMA-262. Python sorted() compares by UTF-32 code points and Go sort.Strings() compares by UTF-8 bytes — the two diverge from RFC 8785 on edge cases (see drift_witness_pua_vs_supplementary). Bindings MUST pre-encode keys as UTF-16-BE (or equivalent) before sorting.",
+  "_doc_version": "1.0",
+  "_spec_section": "9.1.1",
+  "_base_specification": "RFC 8785 §3.2.3",
+
+  "cases": [
+    {
+      "name": "ascii_then_latin1_then_cyrillic",
+      "description": "BMP-only keys below U+E000. UTF-16, UTF-32 and UTF-8 byte orders all agree in this range, so this case pins the baseline that every legacy v0.1.x binding already produced correctly.",
+      "input": { "ya": 1, "ä": 2, "a": 3, "я": 4 },
+      "expected_wire": "{\"a\":3,\"ya\":1,\"ä\":2,\"я\":4}"
+    },
+    {
+      "name": "emoji_after_bmp",
+      "description": "A single non-BMP key with a BMP key. The high surrogate D83D for 💎 (U+1F48E) sorts after any BMP code unit below 0xD800 (the start of the surrogate range).",
+      "input": { "z": 1, "💎": 2 },
+      "expected_wire": "{\"z\":1,\"💎\":2}"
+    },
+    {
+      "name": "supplementary_plane_pin",
+      "description": "Two non-BMP keys plus BMP keys. Final order MUST be aa, ab, äz, 🍕, 💎 — 🍕 (U+1F355, surrogates D83C DD55) precedes 💎 (U+1F48E, surrogates D83D DC8E) because high surrogate D83C < D83D. UTF-16 and UTF-32 happen to agree here (both place 🍕 first), but the case is part of the cross-binding wire contract.",
+      "input": {
+        "aa": 1,
+        "💎": 2,
+        "ab": 3,
+        "äz": 4,
+        "🍕": 5
+      },
+      "expected_wire": "{\"aa\":1,\"ab\":3,\"äz\":4,\"🍕\":5,\"💎\":2}"
+    },
+    {
+      "name": "drift_witness_pua_vs_supplementary",
+      "description": "The witness case for S3. U+E000 is a BMP Private-Use Area code point (single UTF-16 code unit 0xE000). U+20000 is the first character of CJK Unified Ideographs Extension B (UTF-16 surrogates D840 DC00). In UTF-16 code-unit order the supplementary character sorts FIRST because high surrogate D840 < 0xE000; in UTF-32 code-point order (Python sorted) and UTF-8 byte order (Go sort.Strings) the BMP PUA character sorts first. Pre-v0.2.0 Python and Go bindings produced the wrong order on this input.",
+      "input": {
+        "": 1,
+        "𠀀": 2
+      },
+      "_input_doc": "First key is U+E000 (PUA BMP, single UTF-16 code unit 0xE000). Second key is U+20000 (CJK Ext B, surrogate pair D840 DC00); RFC 8259 §7 allows this as either the literal character or two \\uXXXX escapes — bindings reading the fixture MUST decode the second key as a single non-BMP code point.",
+      "expected_wire": "{\"𠀀\":2,\"\":1}"
+    },
+    {
+      "name": "nested_recursion",
+      "description": "Recursive sort — nested objects sort by the same UTF-16 code-unit rule.",
+      "input": {
+        "outer_b": { "🍕": 1, "ab": 2, "💎": 3 },
+        "outer_a": 4
+      },
+      "expected_wire": "{\"outer_a\":4,\"outer_b\":{\"ab\":2,\"🍕\":1,\"💎\":3}}"
+    }
+  ],
+
+  "_implementation_notes": {
+    "python": "Use s.encode('utf-16-be') as the sort key (bytes compare lexicographically); serialize via json.dumps(..., sort_keys=False, ensure_ascii=False) so that the pre-sorted insertion order is preserved on the wire (ensure_ascii=False is required — without it non-ASCII keys are escaped as \\uXXXX, which breaks the byte-equality conformance test). The native sorted(keys) compares code points (UTF-32 semantics) and diverges from RFC 8785 on the drift_witness_pua_vs_supplementary case.",
+    "go": "Use utf16.Encode([]rune(s)) and compare the resulting []uint16 slices lexicographically. The default sort.Strings sorts by UTF-8 bytes and diverges from RFC 8785 on every key whose UTF-8 byte length differs from its UTF-16 code-unit count in a way that flips the order — drift_witness_pua_vs_supplementary is one such case (U+E000 is 3 UTF-8 bytes EE 80 80; U+20000 is 4 UTF-8 bytes F0 A0 80 80).",
+    "typescript": "Array.prototype.sort() on plain strings already sorts by UTF-16 code units per ECMA-262 §22.1.3.27 — no override needed. Pin via this fixture to prevent regression if a future contributor adds a custom comparator."
+  }
+}

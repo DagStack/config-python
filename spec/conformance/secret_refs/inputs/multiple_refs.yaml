@@ -1,0 +1,6 @@
+database:
+  user: ${secret:env:DB_USER}
+  password: ${secret:env:DB_PASSWORD}
+external:
+  api_key: ${secret:env:API_KEY}
+  region: ${secret:env:REGION:-us-east-1}

@@ -1,0 +1,99 @@
+# Canonical JSON serialisation rules (ADR-0001 §9.1.1).
+#
+# Bindings implement a serialiser that produces bit-identical output for the
+# same input. This file is the formal source of truth; on a conflict with
+# the prose in the ADR this file wins.
+
+version: "1.1"
+
+# Base: RFC 8785 JSON Canonicalization Scheme — subset, described below.
+base_specification: "RFC 8785"
+
+rules:
+  # Object keys
+  keys:
+    sort_order: "UTF-16 code-unit order (RFC 8785 §3.2.3)"
+    # RFC 8785 §3.2.3 mandates that object keys are sorted by their
+    # UTF-16 code-unit sequence — NOT by Unicode code point, NOT by
+    # UTF-8 byte sequence. The three native sort routines diverge:
+    #
+    # - JavaScript `Array.prototype.sort()` without a comparator —
+    #   already UTF-16 code-unit order (ECMA-262 §22.1.3.27).
+    #   Conformant by default.
+    # - Python `sorted()` — Unicode code-point (UTF-32) order.
+    #   Diverges in the supplementary plane (e.g. U+E000 BMP PUA vs
+    #   U+20000 CJK Ext B: native sort puts PUA first; RFC 8785
+    #   puts the supplementary character first because its high
+    #   surrogate D840 < 0xE000). Bindings MUST pre-encode keys as
+    #   UTF-16-BE bytes and sort by the resulting byte sequence, or
+    #   apply an equivalent comparator.
+    # - Go `sort.Strings()` — UTF-8 byte order. Same divergence on
+    #   the same edge case (UTF-8 bytes EE 80 80 for U+E000 sort
+    #   before F0 A0 80 80 for U+20000). Same UTF-16-BE workaround.
+    #
+    # Cross-binding wire contract:
+    # see logger-spec `_meta/fixtures/canonical_json_key_order.json`
+    # for a five-case normative fixture (BMP-only baseline, single
+    # supplementary, two supplementaries, BMP-PUA vs supplementary
+    # drift witness, recursive). config-spec bindings reuse the same
+    # fixture pattern; v0.4.0+ Python, TypeScript and Go bindings are
+    # already conformant.
+    encoding: "UTF-8"
+
+  # String values
+  strings:
+    encoding: "UTF-8"
+    escape_form: "minimal"
+    # `\"`, `\\`, `\b`, `\f`, `\n`, `\r`, `\t`, `\uXXXX` for control chars < 0x20.
+    # Unicode characters above 0x1F are emitted verbatim (NOT escaped as \uXXXX).
+    ensure_ascii: false
+
+  # Numbers
+  integers:
+    representation: "decimal, no leading zeros, no decimal point"
+    # `1` not `1.0`, `-42` not `-42.00`.
+    limits:
+      min: -9007199254740992   # -2^53 (JavaScript-safe)
+      max:  9007199254740992   # 2^53
+    # Integers outside the JS-safe range are still valid JSON, but
+    # backends may round them. The binding SHOULD warn when serialising
+    # ints > 2^53.
+
+  floats:
+    representation: "shortest round-trip"
+    # Python 3.1+ float.__repr__ produces shortest round-trip (matches ECMAScript).
+    # Go strconv.FormatFloat with format='g', prec=-1. TS — `JSON.stringify` (native).
+    whole_number_emission: integer_form
+    # Whole-number floats (100.0, -0.0) are serialised as the integer
+    # literals `100` / `0`, not `100.0`. Matches RFC 8785 §3.2.2.3 via
+    # ECMAScript ToString(Number) — which always produces `"100"` for the
+    # number 100. Bindings whose default emitter outputs `100.0` (Python
+    # json.dumps, Ruby JSON.generate) MUST post-process the output to be
+    # bit-identical. Go strconv.FormatFloat with 'g' prec=-1 already
+    # outputs `100` — conformant.
+    negative_zero_normalization: true
+    # `-0.0` is serialised as `0` (integer form, not `-0`, not `0.0`).
+    nan_infinity: reject
+    # `NaN`, `+Infinity`, `-Infinity` — ValueError / serialise failure.
+
+  # Container formatting
+  whitespace:
+    between_items: none
+    # `{"a":1,"b":2}` not `{"a": 1, "b": 2}`.
+    after_colon: none
+    after_comma: none
+    indent: none
+
+  # Document-level
+  document:
+    trailing_newline: false
+    # `{"a":1}` not `{"a":1}\n`.
+    bom: forbidden
+    # No UTF-8 BOM is written.
+    line_ending: "LF"
+    # If line breaks appear inside strings, escape as `\n`.
+
+validation:
+  non_string_dict_keys: reject
+  # The JSON spec disallows non-string keys. A Python dict containing any
+  # non-string key → serialise failure.

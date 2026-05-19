@@ -1,0 +1,4 @@
+tokens:
+  - ${secret:env:TOKEN_A}
+  - ${secret:env:TOKEN_B}
+  - literal-value

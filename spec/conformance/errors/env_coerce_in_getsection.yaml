@@ -1,0 +1,4 @@
+database:
+  host: "${DB_HOST:-localhost}"
+  port: "${DB_PORT:-5432}"
+  pool_size: "${DB_POOL:-20}"

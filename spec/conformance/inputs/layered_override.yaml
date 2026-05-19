@@ -1,0 +1,7 @@
+database:
+  name: appdb-prod
+  pool_size: 50
+cache:
+  ttl_min: 30
+plugins:
+  - audit

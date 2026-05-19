@@ -1,0 +1,2 @@
+database:
+  password: ${secret:nosuchscheme:foo/bar}

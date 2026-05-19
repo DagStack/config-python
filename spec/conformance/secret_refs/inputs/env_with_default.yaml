@@ -1,0 +1,2 @@
+llm:
+  api_key: ${secret:env:UNSET_FOR_TEST:-fallback-value}

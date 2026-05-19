@@ -1,0 +1,1 @@
+k: ${secret:Vault:secret/db}

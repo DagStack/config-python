@@ -1,0 +1,10 @@
+database:
+  name: appdb-dev
+  pool_size: 20
+  timeout_ms: 5000
+cache:
+  ttl_min: 15
+  max_size_mb: 64
+plugins:
+  - audit
+  - metrics

@@ -1,0 +1,3 @@
+# env scheme rejects ?query — env values are opaque single-value strings;
+# structured secrets need a JSON-typed backend (e.g. Vault).
+k: ${secret:env:VAR?version=1}

@@ -1,0 +1,10 @@
+server:
+  port: 8080.0
+  timeout_seconds: 30.0
+  max_connections: 100.0
+rate:
+  ratio: 0.75
+  burst: 200.0
+zeros:
+  negative: -0.0
+  plain: 0.0

@@ -1,0 +1,400 @@
+# Conformance test registry. See runner.md for the format.
+
+version: "1.0"
+
+tests:
+  # ─── Happy path: interpolation + merge ──────────────────────────────────
+
+  - id: basic_interpolation
+    description: ${VAR} / ${VAR:-default} substitution in string/numeric positions.
+    tags: [interpolation, happy]
+    inputs:
+      - inputs/basic_interpolation.yaml
+    env: env/basic_interpolation.env
+    expected: expected/basic_interpolation.json
+
+  - id: layered
+    description: Deep merge of two layers — dicts merged recursively, lists replaced atomically.
+    tags: [layering, happy]
+    inputs:
+      - inputs/layered_base.yaml
+      - inputs/layered_override.yaml
+    env: null
+    expected: expected/layered.json
+
+  - id: interpolation_coerces_numeric
+    description: ${VAR} in non-string positions — the YAML parser coerces integer/bool strings.
+    tags: [interpolation, happy]
+    inputs:
+      - inputs/interpolation_coerces_numeric.yaml
+    env: env/interpolation_coerces_numeric.env
+    expected: expected/interpolation_coerces_numeric.json
+
+  - id: whole_number_floats
+    description: |
+      Whole-number floats (100.0, -0.0) in canonical JSON are emitted as
+      integer literals (100, 0) per §9.1.1 / canonical_json.yaml.
+      Fractional floats (0.75) keep their form. Regression guard against
+      cross-binding divergence between Python json.dumps and Go FormatFloat('g').
+    tags: [canonical_json, normalization]
+    inputs:
+      - inputs/whole_number_floats.yaml
+    env: null
+    expected: expected/whole_number_floats.json
+
+  - id: null_parsing
+    description: |
+      YAML `null`, `~` and empty values parse to `null` and are carried
+      into the merged tree without loss. Regression guard for parser
+      behaviour.
+      NOTE: this test does NOT check `has(path)` semantics (§4.3 existence
+      rule) — runner v1.0 serialises the root and diffs JSON, while the
+      has() invariant requires a runner-protocol extension
+      (`expected_has` assertions) — tracked in a follow-up issue.
+    tags: [parsing, null]
+    inputs:
+      - inputs/has_null.yaml
+    env: null
+    expected: expected/has_null.json
+
+  # ─── Error cases ────────────────────────────────────────────────────────
+
+  - id: env_unresolved
+    description: ${VAR} without a default and the env var is unset → ENV_UNRESOLVED.
+    tags: [errors, interpolation]
+    inputs:
+      - errors/env_unresolved.yaml
+    env: null
+    expected_error:
+      reason: env_unresolved
+      path: ""
+
+  - id: parse_error_yaml
+    description: Invalid YAML → PARSE_ERROR.
+    tags: [errors, parsing]
+    inputs:
+      - errors/parse_error_yaml.yaml
+    env: null
+    expected_error:
+      reason: parse_error
+      path: ""
+
+  - id: non_mapping_root
+    description: YAML root is not a mapping (list/scalar) → PARSE_ERROR.
+    tags: [errors, parsing]
+    inputs:
+      - errors/non_mapping_root.yaml
+    env: null
+    expected_error:
+      reason: parse_error
+      path: ""
+
+  # ─── v2.1: Path preservation + env-string coercion ───────────────────
+  #
+  # These fixtures introduce getter- and getSection-level contracts (§4.4
+  # env-string coercion, §4.5 path preservation). Runner v1.0 only tests
+  # load-level errors (through `Config.load_from(...)` + root
+  # serialisation). Getter / getSection-level checks **require a runner
+  # protocol extension** — adding `expected_getter:` / `expected_section:`
+  # blocks to the manifest with call arguments (path, schema, default).
+  # The runner extension is tracked as a follow-up issue (config-spec#NN)
+  # after the v2.1 merge. Until then the fixtures are registered here so
+  # bindings can use them in their unit tests directly, ahead of the
+  # runner extension.
+
+  - id: path_preservation_missing_leaf
+    description: |
+      getString("a.b.c_missing") where "a.b" exists but "a.b.c_missing"
+      is absent → ConfigError with the full dot-notation path
+      "a.b.c_missing", not "a" and not "a.b". §4.5 Path preservation.
+    tags: [errors, path_preservation, v2.1, runner_extension_required]
+    inputs:
+      - errors/path_preservation_missing_leaf.yaml
+    env: null
+    expected_error:
+      reason: missing
+      path: "a.b.c_missing"
+      # NB: this path is expected from a getter call (getString("a.b.c_missing")),
+      # not from load. Runner v1.0 does not model getter calls.
+
+  - id: validation_nested_path
+    description: |
+      getSection("database", schema) where pool_size="twenty" is invalid
+      as int → ConfigError(validation_failed) with path="database.pool_size",
+      not path="database" and not path="pool_size". §4.5 Path preservation
+      for typed sections with a nested field failure.
+    tags: [errors, path_preservation, validation, v2.1, runner_extension_required]
+    inputs:
+      - errors/validation_nested_path.yaml
+    env: null
+    expected_error:
+      reason: validation_failed
+      path: "database.pool_size"
+
+  - id: env_coerce_in_getsection
+    description: |
+      getSection("database", schema) where every int field arrives as an
+      env-substituted string ("${DB_PORT:-5432}") — the binding coerces
+      the strings to int before the validator, and the result is a valid
+      typed object. §4.4 Env-string coercion for typed sections.
+    tags: [happy, env_coercion, typed_section, v2.1, runner_extension_required]
+    inputs:
+      - errors/env_coerce_in_getsection.yaml
+    env: null
+    expected: errors/env_coerce_in_getsection.expected.json
+    # NB: the expected file here is the post-coercion tree; the runner must
+    # serialise not the raw merged tree (where port would still be the
+    # string "5432") but the tree after getSection-level coercion. This
+    # requires a runner extension.
+
+  # ─── v2.2: Quality hardening ─────────────────────────────────────────
+
+  - id: ijson_safe_boundary
+    description: |
+      i-JSON safe range boundary (±(2^53-1)) — cross-binding precision
+      parity. Python bignum, TS float64 safe-integer, Go int64 — all
+      must keep the exact value at these boundaries.
+      §4.3 / _meta/coercion.yaml.
+    tags: [happy, precision, ijson, v2.2]
+    inputs:
+      - inputs/ijson_safe_boundary.yaml
+    env: null
+    expected: expected/ijson_safe_boundary.json
+
+  - id: yaml_1_2_bool_literals
+    description: |
+      YAML 1.2 strict mode: `yes` / `no` / `on` / `off` are strings, not
+      bools. Only `true` / `false` are native bool (§2 v2.2 normative).
+      pyyaml parses as YAML 1.1 by default — the binding must explicitly
+      use YAML 1.2 mode.
+    tags: [happy, yaml_1_2, v2.2]
+    inputs:
+      - inputs/yaml_1_2_bool_literals.yaml
+    env: null
+    expected: expected/yaml_1_2_bool_literals.json
+
+  - id: error_path_array_index
+    description: |
+      ConfigError.path for a nested validation failure inside an array
+      element uses the [N] notation, not .N: 'database.servers[1].port',
+      not 'database.servers.1.port' (§4.2 v2.2, §4.5 Path preservation).
+    tags: [errors, path_preservation, array_index, v2.2, runner_extension_required]
+    inputs:
+      - errors/error_path_array_index.yaml
+    env: null
+    expected_error:
+      reason: validation_failed
+      path: "database.servers[1].port"
+
+  - id: getter_raw_vs_section_view
+    description: |
+      Walker invariant (§4.4 v2.2): `get()` returns the raw merged tree
+      (env-substituted values stay strings); `getSection(schema)` applies
+      schema-aware coercion. The load-level part of the fixture checks
+      the raw tree; the getSection-level part requires a runner extension.
+
+      Runner v1.0 serialises the root tree and compares it against
+      expected — every env-substituted field stays a string ("5432",
+      "20"). Bindings additionally check in their own unit tests that the
+      getSection tree yields int fields.
+    tags: [happy, walker_invariant, v2.2]
+    inputs:
+      - inputs/getter_raw_vs_section_view.yaml
+    env: null
+    expected: expected/getter_raw_vs_section_view.json
+
+  # ─── Phase 2 secrets: env scheme (ADR-0002) ────────────────────────────
+
+  - id: secret_env_passthrough
+    description: |
+      Single ${secret:env:VAR} reference resolves through EnvSecretSource
+      to the env vector value. Demonstrates the simplest Phase 2 path.
+    tags: [phase2_secrets, happy]
+    inputs:
+      - secret_refs/inputs/env_passthrough.yaml
+    env: secret_refs/env/env_passthrough.env
+    expected: secret_refs/expected/env_passthrough.json
+
+  - id: secret_env_with_default
+    description: |
+      ${secret:env:VAR:-default} falls back to the literal default when
+      the env var is not set. Mirrors Phase 1 ${VAR:-default} semantics.
+    tags: [phase2_secrets, happy, defaults]
+    inputs:
+      - secret_refs/inputs/env_with_default.yaml
+    env: secret_refs/env/env_with_default.env
+    expected: secret_refs/expected/env_with_default.json
+
+  - id: secret_multiple_refs
+    description: |
+      Several references in one tree, mix of resolved + defaulted.
+      Verifies the loader walks all leaves and resolves each ref.
+    tags: [phase2_secrets, happy]
+    inputs:
+      - secret_refs/inputs/multiple_refs.yaml
+    env: secret_refs/env/multiple_refs.env
+    expected: secret_refs/expected/multiple_refs.json
+
+  - id: secret_preserves_other_types
+    description: |
+      A ${secret:env:VAR} alongside int / bool / float scalars in the
+      same tree. Resolution touches only the SecretRef leaf; other
+      types pass through unchanged (regression guard for tree-walker).
+    tags: [phase2_secrets, happy, types]
+    inputs:
+      - secret_refs/inputs/preserves_other_types.yaml
+    env: secret_refs/env/preserves_other_types.env
+    expected: secret_refs/expected/preserves_other_types.json
+
+  - id: secret_nested_in_arrays
+    description: |
+      ${secret:env:VAR} inside an array; mix with literal-string
+      siblings. Verifies tree-walker recurses into list values.
+    tags: [phase2_secrets, happy, arrays]
+    inputs:
+      - secret_refs/inputs/nested_in_arrays.yaml
+    env: secret_refs/env/nested_in_arrays.env
+    expected: secret_refs/expected/nested_in_arrays.json
+
+  - id: secret_coexists_with_var_syntax
+    description: |
+      Phase 1 ${VAR} syntax keeps working alongside Phase 2
+      ${secret:env:VAR} (ADR-0002 §1.1 backwards compat). Both forms
+      reach the same resolved string in the merged tree.
+    tags: [phase2_secrets, happy, backwards_compat]
+    inputs:
+      - secret_refs/inputs/coexists_with_var_syntax.yaml
+    env: secret_refs/env/coexists_with_var_syntax.env
+    expected: secret_refs/expected/coexists_with_var_syntax.json
+
+  # ─── Phase 2 secrets: error fixtures (ADR-0002 §5) ─────────────────────
+
+  - id: secret_unknown_scheme
+    description: |
+      ${secret:nosuchscheme:...} without a default — the loader scans the
+      merged tree at load time (ADR-0002 §4 rule 3), finds no SecretSource
+      registered for the scheme, and raises secret_unresolved.
+    tags: [phase2_secrets, errors, eager_scan]
+    inputs:
+      - secret_errors/inputs/unknown_scheme.yaml
+    env: null
+    expected_error:
+      reason: secret_unresolved
+      path: ""
+
+  - id: secret_env_var_missing_no_default
+    description: |
+      ${secret:env:VAR} with VAR unset and no `:-default` —
+      EnvSecretSource raises secret_unresolved on first access (Python
+      lazy) or at load (TS/Go eager). Either way the wire reason is the
+      same.
+    tags: [phase2_secrets, errors]
+    inputs:
+      - secret_errors/inputs/env_var_missing_no_default.yaml
+    env: null
+    expected_error:
+      reason: secret_unresolved
+      path: ""
+
+  - id: secret_grammar_uppercase_scheme
+    description: |
+      Scheme grammar requires lowercase: ${secret:Vault:...} fails the
+      [a-z][a-z0-9_]* pattern at parse time and raises parse_error.
+    tags: [phase2_secrets, errors, grammar]
+    inputs:
+      - secret_errors/inputs/grammar_uppercase_scheme.yaml
+    env: null
+    expected_error:
+      reason: parse_error
+      path: ""
+
+  - id: secret_grammar_missing_scheme_separator
+    description: |
+      The first ":" in the inner content terminates the scheme. A token
+      without ":" between scheme and path is malformed and raises
+      parse_error.
+    tags: [phase2_secrets, errors, grammar]
+    inputs:
+      - secret_errors/inputs/grammar_missing_scheme_separator.yaml
+    env: null
+    expected_error:
+      reason: parse_error
+      path: ""
+
+  - id: secret_token_mixed_with_text
+    description: |
+      A ${secret:...} reference must occupy the WHOLE scalar value
+      (ADR-0002 §3 walker contract). Splicing it into surrounding text
+      is an explicit parse_error so operators compose at the application
+      level.
+    tags: [phase2_secrets, errors, walker]
+    inputs:
+      - secret_errors/inputs/token_mixed_with_text.yaml
+    env: null
+    expected_error:
+      reason: parse_error
+      path: ""
+
+  - id: secret_env_query_rejected
+    description: |
+      EnvSecretSource rejects ?query in path — env values are opaque
+      single-value strings (no version, no sub-key projection). Phase 2
+      §1.2 normative: structured secrets need a JSON-typed backend.
+    tags: [phase2_secrets, errors, env_scheme]
+    inputs:
+      - secret_errors/inputs/env_query_rejected.yaml
+    env: null
+    expected_error:
+      reason: secret_unresolved
+      path: ""
+
+  # ─── Phase 2 secrets: HashiCorp Vault (conditional) ────────────────────
+  # These fixtures require a live Vault server seeded by
+  # conformance/vault/seed.sh. Bindings gate the run on env
+  # DAGSTACK_CONFORMANCE_VAULT_ADDR.
+
+  - id: vault_single_key
+    description: |
+      Single-key KV v2 envelope unwraps to the only value; no #field
+      needed. Verifies that VaultSource correctly handles the
+      simple-store-one-secret pattern.
+    tags: [phase2_secrets_vault, happy]
+    inputs:
+      - vault/inputs/single_key.yaml
+    env: null
+    expected: vault/expected/single_key.json
+
+  - id: vault_field_projection
+    description: |
+      Two references to different sub-keys of the same Vault secret
+      both resolve via #field projection (ADR-0002 §1.2). Adapters that
+      cache the envelope share one round-trip across the two refs.
+    tags: [phase2_secrets_vault, happy, field_projection]
+    inputs:
+      - vault/inputs/field_projection.yaml
+    env: null
+    expected: vault/expected/field_projection.json
+
+  - id: vault_multi_key_no_field
+    description: |
+      Multi-key envelope without #field raises the verbatim §1.2
+      normative message. Cross-binding parity rule: the same operator-
+      facing message in Python / TypeScript / Go.
+    tags: [phase2_secrets_vault, errors, normative_message]
+    inputs:
+      - vault/inputs/multi_key_no_field.yaml
+    env: null
+    expected_error:
+      reason: secret_unresolved
+      path: ""
+
+  - id: vault_version_query
+    description: |
+      ?version=N reads a specific KV v2 version. seed.sh writes v1 then
+      v2 to the same path; the fixture verifies both versions resolve
+      correctly.
+    tags: [phase2_secrets_vault, happy, version_query]
+    inputs:
+      - vault/inputs/version_query.yaml
+    env: null
+    expected: vault/expected/version_query.json
